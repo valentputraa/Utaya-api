@@ -4,13 +4,21 @@ const User = mongoose.Schema({
     username:{
         type: String,
         required: true,
-        index: { unique: true, dropDups: true }
+        unique: true
+    },
+    isAdmin:{
+        type: Boolean,
+        default: false
     },
     password:{
         type: String,
         required: true
     },
-    accessToken:{
+    isDelete:{
+        type: Boolean,
+        default: false
+    },
+    refreshToken:{
         type: String,
         required: false
     },

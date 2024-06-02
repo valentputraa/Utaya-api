@@ -2,15 +2,13 @@ import User from "../models/userModel.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
+
 export const getUserLogin = async (req, res) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader.split(' ')[1];
-    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, async (err, decoded) => {
-        if(err) return res.sendStatus(403);
-        const idUser = decoded.id;
-        const user = await User.find({_id: idUser}).select({username: 1});
-        res.status(200).json(user);
-    });
+    const refreshToken = req.cookies.refreshToken;
+    if(!refreshToken) return res.sendStatus(403);
+    const user = await User.find({refreshToken: refreshToken}).select({username: 1});
+    res.status(200).json(user);
+   
 }
 
 export const storeUsers = async (req, res) => {
@@ -47,7 +45,8 @@ export const storeUsers = async (req, res) => {
     const createdAt = new Date().toISOString();
     const updatedAt = createdAt;
     const deletedAt = null;
-    const accessToken = null;
+    const refreshToken = null;
+    
 
     //password hash
     const salt = await bcrypt.genSalt();
@@ -56,7 +55,7 @@ export const storeUsers = async (req, res) => {
     const user = new User({
         username, 
         password: hashPassword, 
-        accessToken,
+        refreshToken,
         createdAt, 
         updatedAt,
         deletedAt
@@ -70,16 +69,15 @@ export const storeUsers = async (req, res) => {
     }
 }
 
-
 export const loginUsers = async (req, res) => {
     const { username, password } = req.body;
     const user = await User.find({username: username});
 
     if(username === undefined || password === undefined) return res.status(400).json({message: {username: "require", password: "require"}});
-    const tim = new Date();
-    console.log(tim);
+   
 
     if(user[0] === undefined ) return res.status(404).json({message: 'username not found'});
+    if(user[0].isDelete === true) return res.status(403).json({message: 'your account has been deleted'});
 
     const match = await bcrypt.compare(password, user[0].password);
 
@@ -88,7 +86,7 @@ export const loginUsers = async (req, res) => {
     const id = user[0].id;
     const userName = user[0].username;
     const accessToken = jwt.sign({id, userName}, process.env.ACCESS_TOKEN_SECRET, {
-        expiresIn: '1d'
+        expiresIn: '15s'
     });
     const refreshToken = jwt.sign({id, userName}, process.env.REFRESH_TOKEN_SECRET,{
         expiresIn: '1d'
@@ -98,9 +96,9 @@ export const loginUsers = async (req, res) => {
         _id: id
     },
     {
-        accessToken: accessToken
+        refreshToken: refreshToken
     });
-    res.cookie('accessToken', accessToken, {
+    res.cookie('refreshToken', refreshToken, {
         httpOnly: true,
         maxAge: 24 * 60 * 60 * 1000
     });
@@ -112,70 +110,73 @@ export const loginUsers = async (req, res) => {
 export const updatePassword = async (req, res) => {
     const { password, newPassword, confirmNewPassword } = req.body;
     if(password === undefined || newPassword === undefined || confirmNewPassword === undefined) return res.status(400).json({message: {password: "require", newPassword: "require", confirmNewPassword: "require"}});
-    const authHeader = req.headers['authorization'];
-    const token = authHeader.split(' ')[1];
-    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, async (err, decoded) => {
-        if(err) return res.sendStatus(403);
-        const idUser = decoded.id;
-        const user = await User.find({_id: idUser});
-        const match = await bcrypt.compare(password, user[0].password);
-        
-        if(!match) return res.status(400).json({message: 'wrong password'});
-        const confirmMatch = newPassword == confirmNewPassword;
-        
-        if(!confirmMatch) return res.status(400).json({message: 'password not the same'});
+    const refreshToken = req.cookies.refreshToken;
+    if(!refreshToken) return res.sendStatus(403);
+    const user = await User.find({refreshToken: refreshToken});
+    const idUser = user[0].id;
+    const match = await bcrypt.compare(password, user[0].password);
+    
+    if(!match) return res.status(400).json({message: 'wrong password'});
 
-        const salt = await bcrypt.genSalt();
-        const hashPassword = await bcrypt.hash(newPassword, salt);
-        const updatedAt = new Date().toISOString();
+    const confirmMatch = newPassword == confirmNewPassword;
 
-        await User.updateOne({
-            _id: idUser
-        },
-        {
-            password: hashPassword,
-            updatedAt
-        });
+    if(!confirmMatch) return res.status(400).json({message: 'password not the same'});
 
-        res.status(200).json({meassage: 'password has been update'});
-    });
+    const salt = await bcrypt.genSalt();
+    const hashPassword = await bcrypt.hash(newPassword, salt);
+    const updatedAt = new Date().toISOString();
+
+    await User.updateOne({
+                _id: idUser
+            },
+            {
+                password: hashPassword,
+                updatedAt
+            });
+    
+    res.status(200).json({meassage: 'password has been update'});
 }
 
 export const logoutUsers = async (req, res) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader.split(' ')[1];
-    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, async (err, decoded) => {
-        if(err) return res.sendStatus(403);
-        const idUser = decoded.id;
-        await User.updateOne({
-            _id: idUser
-        },
-        {
-            accessToken: null
-        });
-        res.status(200).json({meassage: 'logout success'});
+    const refreshToken = req.cookies.refreshToken;
+    if(!refreshToken) return res.sendStatus(204);
+    const user = await User.find({refreshToken: refreshToken});
+    if(!user[0]) return res.sendStatus(204);
+    const idUser = user[0].id;
+    await User.updateOne({
+        _id: idUser
+    },
+    {
+        refreshToken: null
     });
+    res.clearCookie('refreshToken');
+    return res.sendStatus(200);
 }
 
 export const deleteUsers = async (req, res) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader.split(' ')[1];
-    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, async (err, decoded) => {
-        if(err) return res.sendStatus(403);
-        const idUser = decoded.id;
-        const deletedAt = new Date().toISOString();
+
+    const refreshToken = req.cookies.refreshToken;
+    if(!refreshToken) return res.sendStatus(403);
+    const user = await User.find({refreshToken: refreshToken});
+    const idUser = user[0].id;
+    const deletedAt = new Date().toISOString();
+
         await User.updateOne({
             _id: idUser
         },
         {
-            username: null,
-            password: null,
-            accessToken: null,
+            isDelete: true,
+            refreshToken: null,
             deletedAt
-
         });
-        res.status(200).json({meassage: "account has been deleted"})
-    })
+    res.clearCookie('refreshToken');
+    res.status(200).json({meassage: "account has been deleted"});
 }
 
+export const getAllUsers = async (req, res) => {
+    const refreshToken = req.cookies.refreshToken;
+    if(!refreshToken) return res.sendStatus(403);
+    const users = await User.find().select({username: 1, isAdmin: 1, isDelete: 1});
+    res.status(200).json(users);
+}
 

@@ -1,7 +1,8 @@
 import jwt from "jsonwebtoken";
 import User from "../models/userModel.js"
 
-export const verifToken = (req, res, next) => {
+
+export const isAdmin = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     if(token == null) return res.sendStatus(401);
@@ -10,8 +11,7 @@ export const verifToken = (req, res, next) => {
         req.id = decoded.id;
         const idUser = decoded.id;
         const user = await User.find({_id: idUser});
-        const matchToken = token === user[0].accessToken;
-        if(!matchToken) return res.sendStatus(403)
+        if(!user[0].isAdmin) return res.sendStatus(403)
         next();
     })
 }
